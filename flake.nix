@@ -15,6 +15,7 @@
               pkgs.go
               pkgs.gopls
               pkgs.delve
+              pkgs.sqlite
             ];
             shellHook = ''
               alias build='mkdir -p build && cd build && go build -o apm ../src && cd ..'
@@ -26,7 +27,7 @@
         };
 
         defaultPackage = pkgs.stdenv.mkDerivation {
-          pname = "flk";
+          pname = "apm";
           version = "0.0.1";
           src = ./.;
 
@@ -40,6 +41,7 @@
             export GOMODCACHE=$TMPDIR/go-mod-cache
             go mod vendor
             go build -o build/flk ./src
+            CGO_ENABLED=1
           '';
 
           installPhase = ''
