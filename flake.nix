@@ -26,24 +26,14 @@
           };
         };
 
-        defaultPackage = pkgs.stdenv.mkDerivation {
+        defaultPackage = pkgs.buildGoModule {
           pname = "apm";
           version = "0.0.1";
           src = ./.;
-
-          buildInputs = [ pkgs.go ];
-
-          goMod = ./go.mod;
-          goSum = ./go.sum;
-
-          buildPhase = ''
-            export GOCACHE=$TMPDIR/go-build-cache
-            export GOMODCACHE=$TMPDIR/go-mod-cache
-            go mod vendor
-            go build -o build/flk ./src
-            CGO_ENABLED=1
-          '';
-
+          vendorHash = null;
+          subPackages = [ "src" ];
+          CGO_ENABLED = 1;
+          buildFlagsArray = [ "-o=build/flk" ];
           installPhase = ''
             mkdir -p $out/bin
             cp build/flk $out/bin/
