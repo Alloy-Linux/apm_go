@@ -4,7 +4,6 @@ A simple CLI tool for managing packages on Alloy Linux and other NixOS-based sys
 
 ### Installation
 ```bash
-```bash
 # install it imperatively as the current user (discouraged)
 nix profile install github:Alloy-Linux/apm_go
 ```
