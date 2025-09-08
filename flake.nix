@@ -26,18 +26,33 @@
           };
         };
 
-        defaultPackage = pkgs.buildGoModule {
+        packages.default = pkgs.buildGoModule {
           pname = "apm";
           version = "0.0.1";
           src = ./.;
-          vendorHash = null;
+          vendorHash = "sha256-NUIpLPchOsLwPz0dp+jmcUmRdKOlPNVGrUq0YxkfZpQ=";
           subPackages = [ "src" ];
-          buildFlagsArray = [ "-o=build/flk" ];
-          env.CGO_ENABLED = 1;
-          installPhase = ''
-            mkdir -p $out/bin
-            cp build/flk $out/bin/
+          
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+            sqlite
+          ];
+          
+          env.CGO_ENABLED = "1";
+          
+          # Use -mod=readonly to ignore vendor directory inconsistencies
+          buildFlags = [ "-mod=readonly" ];
+          
+          postInstall = ''
+            mv $out/bin/src $out/bin/apm
           '';
+          
+          meta = with pkgs.lib; {
+            description = "Alloy Package Manager";
+            homepage = "https://github.com/Alloy-Linux/apm_go";
+            license = licenses.gpl3;
+            maintainers = [ pkgs.lib.maintainers.Simon-Weij ];
+          };
         };
       }
     );

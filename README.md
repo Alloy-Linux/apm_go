@@ -3,14 +3,74 @@
 A simple CLI tool for managing packages on Alloy Linux and other NixOS-based systems. 
 
 ### Installation
-Soon
+```bash
+```bash
+# install it imperatively as the current user (discouraged)
+nix profile install github:Alloy-Linux/apm_go
+```
+
+### Declarative Installation (Recommended)
+
+
+```nix
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # add the apm repo
+    apm.url = "github:Alloy-Linux/apm_go";
+    apm.packages.${system}.default
+  };
+
+
+}
+```
+
+# Basic Usage
+
+### install using flakes (recommended)
+
+
+
+```nix
+inputs = {
+   nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+   unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+   # add the apm repo
+   apm.url = "github:Alloy-Linux/apm_go";
+
+};
+```
+
+### Add the package your preferred way
+```nix
+# install using home-manager
+home.packages = [ 
+   apm.packages.{system}.default
+];
+```
+### or
+
+```nix
+# install system-wide
+environment.systemPackages = [
+   apm.packages.{system}.default
+];
+
+```
 
 ### Basic Usage
+
+After adding APM to your flake and rebuilding, you can start using it:
+
 ```bash
-# Set up your flake location
+# Set up your flake location (point to your Nix config directory)
 apm set-flake-location /path/to/your/nix-config
 
-# Build the package cache (first-time setup)
+# Build the package cache (first-time setup - downloads ~100k packages)
 apm makecache
 
 # Add a package (automatically uses Home Manager)
@@ -18,6 +78,9 @@ apm add firefox
 
 # List installed packages
 apm list --home-manager
+
+# Rebuild your system with the new packages
+apm rebuild
 ```
 
 ## Commands
