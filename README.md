@@ -120,9 +120,10 @@ apm rebuild
 
 ### Information
 - **`show-nixpkgs-version`** - Display the current nixpkgs version in your flake
+- **`update-nixpkgs`** - Update nixpkgs to the latest stable version in your flake (uses sudo, dynamic version detection)
 
-
-## How It Works
+### System Management
+- **`update`** - Update all flake inputs and lock file (uses sudo)
 
 ### Package Installation Methods
 
@@ -196,6 +197,17 @@ apm list --nix-env
 
 # Update package cache
 apm makecache
+
+# Update nixpkgs to latest stable version
+apm update-nixpkgs
+
+# This command:
+# 1. Fetches latest nixos branches from GitHub API
+# 2. Falls back to Nix channels API if GitHub fails
+# 3. Updates your flake.nix and runs nix flake update
+
+# Update all flake inputs
+apm update
 ```
 
 

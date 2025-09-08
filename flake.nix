@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -20,7 +20,7 @@
             shellHook = ''
               alias build='mkdir -p build && cd build && go build -o apm ../src && cd ..'
               alias run='mkdir -p build && cd build && go build -o apm .. && ./apm; cd ..'
-              alias apm='./build/apm'
+              alias apmt='./build/apm'
               echo "Development environment loaded"
             '';
           };
@@ -28,7 +28,7 @@
 
         packages.default = pkgs.buildGoModule {
           pname = "apm";
-          version = "0.0.1";
+          version = "0.1.0";
           src = ./.;
           vendorHash = "sha256-NUIpLPchOsLwPz0dp+jmcUmRdKOlPNVGrUq0YxkfZpQ=";
           subPackages = [ "src" ];

@@ -1,11 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var systemPackagesBoilerplate = `
@@ -542,4 +549,245 @@ func extractInputModules(flakePath string) error {
 	}
 
 	return nil
+}
+
+// getLatestNixpkgsVersion fetches the latest nixpkgs version from multiple sources
+func getLatestNixpkgsVersion() (string, error) {
+	sources := []struct {
+		name string
+		url  string
+	}{
+		{"GitHub Branches", "https://api.github.com/repos/NixOS/nixpkgs/branches?per_page=100"},
+		{"GitHub Releases", "https://api.github.com/repos/NixOS/nixpkgs/releases?per_page=100"},
+		{"Nix Channels", "https://channels.nixos.org/"},
+		{"Nix Homepage", "https://nixos.org/"},
+	}
+
+	for _, source := range sources {
+		log.Printf("Trying to get version from %s: %s", source.name, source.url)
+		version, err := parseVersionFromSource(source.url)
+		if err != nil {
+			log.Printf("Failed to parse version from %s: %v", source.name, err)
+			continue
+		}
+		if version != "" {
+			log.Printf("Successfully got version %s from %s", version, source.name)
+			return version, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to get version from all sources")
+}
+
+// Update nixpkgs version in flake.nix
+func updateNixpkgsVersion(flakePath, newVersion string) error {
+	// Read the flake file
+	content, err := os.ReadFile(flakePath)
+	if err != nil {
+		return fmt.Errorf("error reading flake.nix: %v", err)
+	}
+
+	contentStr := string(content)
+	lines := strings.Split(contentStr, "\n")
+	updated := false
+
+	// Find and update nixpkgs.url line
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "nixpkgs.url =") && !strings.HasPrefix(line, "#") {
+			// Replace the version in the URL
+			if strings.Contains(lines[i], "nixos-") {
+				// Replace existing version
+				re := regexp.MustCompile(`nixos-[0-9]+\.[0-9]+`)
+				lines[i] = re.ReplaceAllString(lines[i], "nixos-"+newVersion)
+			} else {
+				// Add version if not present
+				re := regexp.MustCompile(`(nixpkgs\.url\s*=\s*".*github\.com/NixOS/nixpkgs)(.*")`)
+				lines[i] = re.ReplaceAllString(lines[i], "${1}/nixos-"+newVersion+"${2}")
+			}
+			updated = true
+			break
+		}
+	}
+
+	if !updated {
+		return fmt.Errorf("nixpkgs.url not found in flake.nix")
+	}
+
+	// Write back to file
+	err = os.WriteFile(flakePath, []byte(strings.Join(lines, "\n")), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing flake.nix: %v", err)
+	}
+
+	return nil
+}
+
+// parseVersionFromSource attempts to parse version from a given URL
+func parseVersionFromSource(url string) (string, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	// Try different parsing strategies based on the URL
+	if strings.Contains(url, "api.github.com") && strings.Contains(url, "branches") {
+		return parseGitHubBranches(body)
+	} else if strings.Contains(url, "api.github.com") && strings.Contains(url, "releases") {
+		return parseGitHubReleases(body)
+	} else if strings.Contains(url, "channels.nixos.org") {
+		return parseNixChannels(body)
+	} else if strings.Contains(url, "nixos.org") {
+		return parseNixHomepage(body)
+	}
+
+	return "", fmt.Errorf("no parser available for URL: %s", url)
+}
+
+func parseGitHubBranches(body []byte) (string, error) {
+	var branches []struct {
+		Name string `json:"name"`
+	}
+
+	err := json.Unmarshal(body, &branches)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse branches JSON: %v", err)
+	}
+
+	var candidateVersions []string
+	for _, branch := range branches {
+		if strings.HasPrefix(branch.Name, "nixos-") && !strings.Contains(branch.Name, "-small") {
+			version := strings.TrimPrefix(branch.Name, "nixos-")
+			// Skip unstable/development branches
+			if version != "unstable" {
+				candidateVersions = append(candidateVersions, version)
+			}
+		}
+	}
+
+	if len(candidateVersions) == 0 {
+		return "", fmt.Errorf("no valid nixos branches found")
+	}
+
+	// Sort versions and return the latest
+	sort.Strings(candidateVersions)
+	return candidateVersions[len(candidateVersions)-1], nil
+}
+
+// parseGitHubReleases parses version from GitHub releases API response
+func parseGitHubReleases(body []byte) (string, error) {
+	var releases []struct {
+		TagName string `json:"tag_name"`
+	}
+
+	err := json.Unmarshal(body, &releases)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse releases JSON: %v", err)
+	}
+
+	var candidateVersions []string
+	for _, release := range releases {
+		if strings.HasPrefix(release.TagName, "nixos-") {
+			version := strings.TrimPrefix(release.TagName, "nixos-")
+			candidateVersions = append(candidateVersions, version)
+		}
+	}
+
+	if len(candidateVersions) == 0 {
+		return "", fmt.Errorf("no valid nixos releases found")
+	}
+
+	// Sort and return the latest version
+	sort.Strings(candidateVersions)
+	return candidateVersions[len(candidateVersions)-1], nil
+}
+
+// parseNixChannels parses version from Nix channels HTML response
+func parseNixChannels(body []byte) (string, error) {
+	bodyStr := string(body)
+	lines := strings.Split(bodyStr, "\n")
+	var foundVersions []string
+
+	for _, line := range lines {
+		if strings.Contains(line, "nixos-") {
+			re := regexp.MustCompile(`nixos-(\d+\.\d+)`)
+			matches := re.FindAllStringSubmatch(line, -1)
+			for _, match := range matches {
+				if len(match) > 1 {
+					version := match[1]
+					// Avoid duplicates
+					if !contains(foundVersions, version) {
+						foundVersions = append(foundVersions, version)
+					}
+				}
+			}
+		}
+	}
+
+	if len(foundVersions) == 0 {
+		return "", fmt.Errorf("no versions found in Nix channels")
+	}
+
+	// Sort and return the latest version
+	sort.Strings(foundVersions)
+	return foundVersions[len(foundVersions)-1], nil
+}
+
+// parseNixHomepage parses version from Nix homepage HTML response
+func parseNixHomepage(body []byte) (string, error) {
+	bodyStr := string(body)
+	lines := strings.Split(bodyStr, "\n")
+	var foundVersions []string
+
+	// Look for version patterns in the homepage - be more specific for nixpkgs versions
+	re := regexp.MustCompile(`(\d{2}\.\d{2})`) // Look for XX.XX pattern (like 24.05)
+	for _, line := range lines {
+		if strings.Contains(line, "nixos") || strings.Contains(line, "NixOS") || strings.Contains(line, "release") {
+			matches := re.FindAllString(line, -1)
+			for _, match := range matches {
+				// Validate that it's a reasonable nixpkgs version (between 20.00 and 30.00)
+				if len(match) == 5 { // XX.XX format
+					parts := strings.Split(match, ".")
+					if len(parts) == 2 {
+						major, err1 := strconv.Atoi(parts[0])
+						minor, err2 := strconv.Atoi(parts[1])
+						if err1 == nil && err2 == nil && major >= 20 && major <= 30 && minor >= 0 && minor <= 12 {
+							if !contains(foundVersions, match) {
+								foundVersions = append(foundVersions, match)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(foundVersions) == 0 {
+		return "", fmt.Errorf("no valid nixpkgs versions found on Nix homepage")
+	}
+
+	// Sort and return the latest version
+	sort.Strings(foundVersions)
+	return foundVersions[len(foundVersions)-1], nil
+}
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

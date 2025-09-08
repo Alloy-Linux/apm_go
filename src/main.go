@@ -151,6 +151,45 @@ func main() {
 		},
 	}
 
+	var updateCmd = &cobra.Command{
+		Use:   "update",
+		Short: "Update the flake inputs.",
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			// Check if flake.lock exists and is writable
+			flakeLockPath := filepath.Join(flakeDir, "flake.lock")
+			if _, err := os.Stat(flakeLockPath); err == nil {
+				fmt.Printf("Found flake.lock at: %s\n", flakeLockPath)
+			}
+
+			fmt.Println("Updating flake inputs...")
+			cmdExec := exec.Command("sudo", "nix", "flake", "update")
+			cmdExec.Dir = flakeDir
+			cmdExec.Stdout = os.Stdout
+			cmdExec.Stderr = os.Stderr
+			if err := cmdExec.Run(); err != nil {
+				log.Printf("Error running nix flake update with sudo: %v", err)
+				fmt.Println("\nTroubleshooting:")
+				fmt.Println("- Make sure you have sudo permissions")
+				fmt.Println("- Check that your user is in the sudoers file")
+				return
+			}
+			fmt.Println("Flake inputs updated successfully!")
+		},
+	}
+
+	// Rebuild command
 	var rebuildCmd = &cobra.Command{
 		Use:   "rebuild",
 		Short: "Rebuild the NixOS/Alloy system.",
@@ -270,6 +309,83 @@ func main() {
 		},
 	}
 
+	var updateNixpkgsCmd = &cobra.Command{
+		Use:   "update-nixpkgs",
+		Short: "Update nixpkgs to the latest stable version in flake configuration.",
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			flakePath := filepath.Join(flakeDir, "flake.nix")
+
+			// Get current version
+			currentVersion, err := getNixpkgsVersion(flakePath)
+			if err != nil {
+				log.Printf("Error getting current nixpkgs version: %v", err)
+				return
+			}
+
+			fmt.Printf("Current nixpkgs version: %s\n", currentVersion)
+
+			// Fetch latest stable version
+			latestVersion, err := getLatestNixpkgsVersion()
+			if err != nil {
+				log.Printf("Error fetching latest nixpkgs version: %v", err)
+				return
+			}
+
+			fmt.Printf("Latest stable version: %s\n", latestVersion)
+
+			if currentVersion == latestVersion {
+				fmt.Println("Already up to date!")
+				return
+			}
+
+			// Ask for confirmation
+			fmt.Printf("Update nixpkgs from %s to %s? [y/N]: ", currentVersion, latestVersion)
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(strings.TrimSpace(response)) != "y" {
+				fmt.Println("Update cancelled.")
+				return
+			}
+
+			// Update the flake
+			err = updateNixpkgsVersion(flakePath, latestVersion)
+			if err != nil {
+				log.Printf("Error updating nixpkgs version: %v", err)
+				return
+			}
+
+			fmt.Printf("Successfully updated nixpkgs to version %s\n", latestVersion)
+
+			// Update flake lock file
+			fmt.Println("Updating flake lock file...")
+			cmdExec := exec.Command("sudo", "nix", "flake", "update")
+			cmdExec.Dir = flakeDir
+			cmdExec.Stdout = os.Stdout
+			cmdExec.Stderr = os.Stderr
+			if err := cmdExec.Run(); err != nil {
+				log.Printf("Warning: Failed to update flake lock file with sudo: %v", err)
+				fmt.Println("You may need to check your sudo permissions.")
+			} else {
+				fmt.Println("Flake lock file updated successfully!")
+			}
+
+			fmt.Println("Run 'apm rebuild' to apply the changes.")
+		},
+	}
+
 	var listInputsCmd = &cobra.Command{
 		Use:   "list-inputs",
 		Short: "List all inputs in flake configuration.",
@@ -319,6 +435,7 @@ func main() {
 	}
 
 	// Add commands to the root command
+	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(listPackages)
 	rootCmd.AddCommand(setFlakeLocation)
 	rootCmd.AddCommand(makecacheCmd)
@@ -332,6 +449,7 @@ func main() {
 	rootCmd.AddCommand(listInputsCmd)
 	rootCmd.AddCommand(listModulesCmd)
 	rootCmd.AddCommand(showNixpkgsVersionCmd)
+	rootCmd.AddCommand(updateNixpkgsCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)

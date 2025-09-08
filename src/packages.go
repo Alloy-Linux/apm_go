@@ -370,6 +370,12 @@ func doesPackageExist(pkgName string) bool {
 	apmDir := homedir + "/.cache/apm"
 	dbPath := apmDir + "/apm.db"
 
+	// Check if database file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		fmt.Println("No local database found! Generate it with 'apm makecache'")
+		return false
+	}
+
 	ctx := context.Background()
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
@@ -379,6 +385,13 @@ func doesPackageExist(pkgName string) bool {
 
 	var pkg PackageInfo
 	result := db.WithContext(ctx).Where("pname = ?", pkgName).First(&pkg)
+
+	// Check for table not found error
+	if result.Error != nil && strings.Contains(result.Error.Error(), "no such table") {
+		fmt.Println("No local database found! Generate it with 'apm makecache'")
+		return false
+	}
+
 	return result.Error == nil
 }
 
@@ -496,6 +509,12 @@ func SearchPackages(query string, method InstallationMethod) ([]PackageInfo, err
 		return nil, err
 	}
 	dbPath := homedir + "/.cache/apm/apm.db"
+
+	// Check if database file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no local database found! Generate it with 'apm makecache'")
+	}
+
 	ctx := context.Background()
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
@@ -510,6 +529,10 @@ func SearchPackages(query string, method InstallationMethod) ([]PackageInfo, err
 	// First, find exact matches
 	err = db.WithContext(ctx).Where("pname = ?", query).Find(&exactMatches).Error
 	if err != nil {
+		// Check for table not found error
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, fmt.Errorf("no local database found! Generate it with 'apm makecache'")
+		}
 		return nil, err
 	}
 
