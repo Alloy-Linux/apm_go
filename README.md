@@ -47,7 +47,7 @@ inputs = {
 ```nix
 # install using home-manager
 home.packages = [ 
-   apm.packages.${system}.default
+   apm.packages."${system}".default
 ];
 ```
 ### or
@@ -55,7 +55,7 @@ home.packages = [
 ```nix
 # install system-wide
 environment.systemPackages = [
-   apm.packages.${system}.default
+   apm.packages."${system}".default
 ];
 
 ```
