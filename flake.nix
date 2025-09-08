@@ -32,8 +32,8 @@
           src = ./.;
           vendorHash = null;
           subPackages = [ "src" ];
-          CGO_ENABLED = 1;
           buildFlagsArray = [ "-o=build/flk" ];
+          env.CGO_ENABLED = 1;
           installPhase = ''
             mkdir -p $out/bin
             cp build/flk $out/bin/
