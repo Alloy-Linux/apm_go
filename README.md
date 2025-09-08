@@ -20,7 +20,6 @@ nix profile install github:Alloy-Linux/apm_go
 
     # add the apm repo
     apm.url = "github:Alloy-Linux/apm_go";
-    apm.packages.${system}.default
   };
 
 
@@ -48,7 +47,7 @@ inputs = {
 ```nix
 # install using home-manager
 home.packages = [ 
-   apm.packages.{system}.default
+   apm.packages.${system}.default
 ];
 ```
 ### or
@@ -56,7 +55,7 @@ home.packages = [
 ```nix
 # install system-wide
 environment.systemPackages = [
-   apm.packages.{system}.default
+   apm.packages.${system}.default
 ];
 
 ```
