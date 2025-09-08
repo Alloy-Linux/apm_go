@@ -144,7 +144,7 @@ func main() {
 
 	var setFlakeLocation = &cobra.Command{
 		Use:   "set-flake-location [location]",
-		Short: "Set the flake URL for package management.",
+		Short: "Set the flake path for package management.",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			createFlakeLocationFile(configDir, args)
