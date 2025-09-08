@@ -21,14 +21,14 @@ func MakeCache() {
 	RemoveCache()
 	ctx := context.Background()
 
-	// Get the JSON output from nix search
+	// Get JSON from nix
 	output, err := exec.Command("nix", "search", "nixpkgs", "", "--json").Output()
 	if err != nil {
 		fmt.Printf("Error running nix search: %v\n", err)
 		return
 	}
 
-	// Parse the JSON into a map
+	// Parse JSON
 	var rawPackages map[string]PackageInfo
 	err = json.Unmarshal(output, &rawPackages)
 	if err != nil {
@@ -47,7 +47,7 @@ func MakeCache() {
 	apmDir := homedir + "/.cache/apm"
 	dbPath := apmDir + "/apm.db"
 
-	// Ensure the apm cache directory exists
+	// Ensure cache directory
 	if err := os.MkdirAll(apmDir, 0o755); err != nil {
 		fmt.Printf("Error creating apm cache directory: %v\n", err)
 		return
@@ -61,7 +61,7 @@ func MakeCache() {
 
 	db.AutoMigrate(&PackageInfo{})
 
-	// store all errors
+	// Collect errors
 	var errs []error
 
 	for i, pkg := range packages {
