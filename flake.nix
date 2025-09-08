@@ -40,7 +40,7 @@
           
           env.CGO_ENABLED = "1";
           
-          # Use -mod=readonly to ignore vendor directory inconsistencies
+          # Use -mod=readonly to ignore vendor directory inconsistencies, don't change this
           buildFlags = [ "-mod=readonly" ];
           
           postInstall = ''
