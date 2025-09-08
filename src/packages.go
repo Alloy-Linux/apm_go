@@ -15,6 +15,38 @@ import (
 	"gorm.io/gorm"
 )
 
+// Check if input exists in flake
+func inputExistsInFlake(flakePath, inputName string) bool {
+	content, err := os.ReadFile(flakePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), inputName+".url")
+}
+
+// Ensure unstable input exists
+func ensureUnstableInput(flakeLocation string) error {
+	flakePath := filepath.Join(flakeLocation, "flake.nix")
+
+	// Check if unstable input already exists
+	if inputExistsInFlake(flakePath, "unstable") {
+		return nil
+	}
+
+	// Ask user if they want to add the unstable input
+	fmt.Println("Unstable packages require the 'unstable' nixpkgs input.")
+	fmt.Print("Add unstable input (github:NixOS/nixpkgs/nixos-unstable)? [y/N]: ")
+	var response string
+	fmt.Scanln(&response)
+	if strings.ToLower(strings.TrimSpace(response)) != "y" {
+		fmt.Println("Unstable input not added. Package installation may fail.")
+		return nil
+	}
+
+	// Add the unstable input
+	return addInput(flakePath, "unstable", "github:NixOS/nixpkgs/nixos-unstable")
+}
+
 // Install package
 func installPackage(pkgName, flakeLocation string, method InstallationMethod, unstable bool) {
 	// Skip Nixpkgs check for Flatpak
@@ -40,6 +72,36 @@ func installPackage(pkgName, flakeLocation string, method InstallationMethod, un
 		return
 	}
 
+	// Ensure unstable input exists if using unstable packages
+	if unstable && method != Flatpak {
+		err := ensureUnstableInput(flakeLocation)
+		if err != nil {
+			fmt.Printf("Error setting up unstable input: %v\n", err)
+			return
+		}
+	}
+
+	// Ask for confirmation before modifying files
+	var methodName string
+	switch method {
+	case NixEnv:
+		methodName = "NixEnv"
+	case Flatpak:
+		methodName = "Flatpak"
+	case HomeManager:
+		methodName = "HomeManager"
+	default:
+		methodName = "Unknown"
+	}
+	fmt.Printf("About to install '%s' (%s)\n", pkgName, methodName)
+	fmt.Print("Proceed? [y/N]: ")
+	var response string
+	fmt.Scanln(&response)
+	if strings.ToLower(strings.TrimSpace(response)) != "y" {
+		fmt.Println("Installation cancelled.")
+		return
+	}
+
 	// Get all .nix files
 	files, err := ListFilePaths(flakeLocation)
 	if err != nil {
@@ -47,9 +109,71 @@ func installPackage(pkgName, flakeLocation string, method InstallationMethod, un
 		return
 	}
 
+	// Check if any file contains the required block
+	block := blockNameForMethod(method)
+	hasBlock := false
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".nix") {
+			continue
+		}
+		content, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(content), block) {
+			hasBlock = true
+			break
+		}
+	}
+
+	// If no file has the required block, create the appropriate package file
+	if !hasBlock {
+		switch method {
+		case HomeManager:
+			fmt.Println("No home-manager packages file found. Creating one...")
+			makeHomeEnv()
+			// Re-get the file list after creating the file
+			files, err = ListFilePaths(flakeLocation)
+			if err != nil {
+				fmt.Printf("Error reading files: %v\n", err)
+				return
+			}
+		case NixEnv:
+			fmt.Println("No Nix environment packages file found. Creating one...")
+			makeNixEnv()
+			// Re-get the file list after creating the file
+			files, err = ListFilePaths(flakeLocation)
+			if err != nil {
+				fmt.Printf("Error reading files: %v\n", err)
+				return
+			}
+		case Flatpak:
+			fmt.Println("No Flatpak packages file found. Creating one...")
+			setupFlatpak()
+			// For Flatpak, we need to create the packages file manually since setupFlatpak doesn't do it
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Printf("Error getting home directory: %v\n", err)
+				return
+			}
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				fmt.Printf("Error reading flake location: %v\n", err)
+				return
+			}
+			createPackageFile(flakeDir, "flatpak-packages.nix", "services.flatpak.packages", flatpakPackagesBoilerplate, "./packages/flatpak-packages.nix")
+			// Re-get the file list after creating the file
+			files, err = ListFilePaths(flakeLocation)
+			if err != nil {
+				fmt.Printf("Error reading files: %v\n", err)
+				return
+			}
+		}
+	}
+
 	modified := false
 	filesProcessed := 0
-	block := blockNameForMethod(method)
 	// Process each .nix file
 	for _, f := range files {
 		if !strings.HasSuffix(f, ".nix") {
@@ -62,14 +186,14 @@ func installPackage(pkgName, flakeLocation string, method InstallationMethod, un
 		filesProcessed++
 		switch res {
 		case InsertAdded:
-			fmt.Printf("✓ Added %s to %s\n", pkgName, f)
+			fmt.Printf("Added %s to %s\n", pkgName, f)
 			modified = true
 		case InsertAlreadyPresent:
-			fmt.Printf("✓ %s already in %s\n", pkgName, f)
+			fmt.Printf("%s already in %s\n", pkgName, f)
 		case InsertError:
 			// Only show real file errors
 			if _, err := os.ReadFile(f); err != nil {
-				fmt.Printf("✗ File error: %s\n", f)
+				fmt.Printf("File error: %s\n", f)
 			}
 			// Skip files without block
 		}
@@ -78,9 +202,9 @@ func installPackage(pkgName, flakeLocation string, method InstallationMethod, un
 	// Show result summary
 	if !modified {
 		if filesProcessed == 0 {
-			fmt.Println("✗ No .nix files found.")
+			fmt.Println("No .nix files found.")
 		} else {
-			fmt.Printf("✗ No file with '%s' block found.\n", block)
+			fmt.Printf("No file with '%s' block found.\n", block)
 		}
 	}
 }
@@ -240,7 +364,7 @@ type PackageInfo struct {
 func doesPackageExist(pkgName string) bool {
 	homedir, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Printf("✗ Home directory error: %v\n", err)
+		fmt.Printf("X Home directory error: %v\n", err)
 		return false
 	}
 	apmDir := homedir + "/.cache/apm"
@@ -249,7 +373,7 @@ func doesPackageExist(pkgName string) bool {
 	ctx := context.Background()
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
-		fmt.Printf("✗ Database error: %v\n", err)
+		fmt.Printf("X Database error: %v\n", err)
 		return false
 	}
 
@@ -298,14 +422,68 @@ func searchFlathub(query string) ([]PackageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	var results []PackageInfo
+
+	// Sort results by relevance: exact matches, then starts with, then contains
+	var exactMatches []struct {
+		FlatpakAppId string `json:"flatpakAppId"`
+		Name         string `json:"name"`
+		Summary      string `json:"summary"`
+	}
+	var startsWithMatches []struct {
+		FlatpakAppId string `json:"flatpakAppId"`
+		Name         string `json:"name"`
+		Summary      string `json:"summary"`
+	}
+	var containsMatches []struct {
+		FlatpakAppId string `json:"flatpakAppId"`
+		Name         string `json:"name"`
+		Summary      string `json:"summary"`
+	}
+
 	for _, app := range apps {
+		appIdLower := strings.ToLower(app.FlatpakAppId)
+		queryLower := strings.ToLower(query)
+
+		if appIdLower == queryLower {
+			exactMatches = append(exactMatches, app)
+		} else if strings.HasPrefix(appIdLower, queryLower) {
+			startsWithMatches = append(startsWithMatches, app)
+		} else if strings.Contains(appIdLower, queryLower) {
+			containsMatches = append(containsMatches, app)
+		}
+	}
+
+	var results []PackageInfo
+	// Add exact matches first
+	for _, app := range exactMatches {
 		results = append(results, PackageInfo{
 			Pname:       app.FlatpakAppId,
 			Description: app.Summary,
 			Version:     "",
 		})
 	}
+	// Then starts with matches
+	for _, app := range startsWithMatches {
+		results = append(results, PackageInfo{
+			Pname:       app.FlatpakAppId,
+			Description: app.Summary,
+			Version:     "",
+		})
+	}
+	// Then contains matches
+	for _, app := range containsMatches {
+		results = append(results, PackageInfo{
+			Pname:       app.FlatpakAppId,
+			Description: app.Summary,
+			Version:     "",
+		})
+	}
+
+	// Limit to 10 results
+	if len(results) > 10 {
+		results = results[:10]
+	}
+
 	return results, nil
 }
 
@@ -323,12 +501,40 @@ func SearchPackages(query string, method InstallationMethod) ([]PackageInfo, err
 	if err != nil {
 		return nil, err
 	}
+
 	var results []PackageInfo
-	// Search by name
-	err = db.WithContext(ctx).Where("pname LIKE ?", "%"+query+"%").Find(&results).Error
+	var exactMatches []PackageInfo
+	var startsWithMatches []PackageInfo
+	var containsMatches []PackageInfo
+
+	// First, find exact matches
+	err = db.WithContext(ctx).Where("pname = ?", query).Find(&exactMatches).Error
 	if err != nil {
 		return nil, err
 	}
+
+	// Then, find packages that start with the query
+	err = db.WithContext(ctx).Where("pname LIKE ?", query+"%").Find(&startsWithMatches).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, find packages that contain the query (but don't start with it)
+	err = db.WithContext(ctx).Where("pname LIKE ? AND pname NOT LIKE ?", "%"+query+"%", query+"%").Find(&containsMatches).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Combine results in order of relevance, limiting to 10 total
+	results = append(results, exactMatches...)
+	results = append(results, startsWithMatches...)
+	results = append(results, containsMatches...)
+
+	// Limit to 10 results
+	if len(results) > 10 {
+		results = results[:10]
+	}
+
 	return results, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -41,8 +42,14 @@ func main() {
 				fmt.Println("Error: " + err.Error())
 				return
 			}
+			// Read the actual flake directory from the config file
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				fmt.Printf("Error reading flake location: %v\n", err)
+				return
+			}
 			// Show installed packages
-			pkgs, err := ListInstalledPackages(flakeLocationPath, method)
+			pkgs, err := ListInstalledPackages(flakeDir, method)
 			if err != nil {
 				fmt.Printf("Error listing packages: %v\n", err)
 				return
@@ -138,8 +145,36 @@ func main() {
 	var setFlakeLocation = &cobra.Command{
 		Use:   "set-flake-location [location]",
 		Short: "Set the flake URL for package management.",
+		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			createFlakeLocationFile(configDir, args)
+		},
+	}
+
+	var rebuildCmd = &cobra.Command{
+		Use:   "rebuild",
+		Short: "Rebuild the NixOS/Alloy system.",
+		Run: func(cmd *cobra.Command, args []string) {
+			// rebuild the system
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			cmdExec := exec.Command("sudo", "nixos-rebuild", "switch", "--flake", flakeDir)
+			cmdExec.Stdout = os.Stdout
+			cmdExec.Stderr = os.Stderr
+			if err := cmdExec.Run(); err != nil {
+				log.Printf("Error running nixos-rebuild: %v", err)
+				return
+			}
 		},
 	}
 
@@ -159,12 +194,144 @@ func main() {
 		},
 	}
 
+	var makenixenvCmd = &cobra.Command{
+		Use:   "makenixenv",
+		Short: "Create Nix environment structure and packages file.",
+		Run: func(cmd *cobra.Command, args []string) {
+			makeNixEnv()
+		},
+	}
+
+	var makehomeenvCmd = &cobra.Command{
+		Use:   "makehomeenv",
+		Short: "Create Home Manager packages file.",
+		Run: func(cmd *cobra.Command, args []string) {
+			makeHomeEnv()
+		},
+	}
+
+	var setupflatpakCmd = &cobra.Command{
+		Use:   "setupflatpak",
+		Short: "Add Flatpak module to flake configuration.",
+		Run: func(cmd *cobra.Command, args []string) {
+			setupFlatpak()
+		},
+	}
+
+	var addInputCmd = &cobra.Command{
+		Use:   "add-input [name] [url]",
+		Short: "Add an input to flake configuration.",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			err = addInput(filepath.Join(flakeDir, "flake.nix"), args[0], args[1])
+			if err != nil {
+				log.Printf("Error adding input: %v", err)
+			}
+		},
+	}
+
+	var showNixpkgsVersionCmd = &cobra.Command{
+		Use:   "show-nixpkgs-version",
+		Short: "Show the current nixpkgs version in flake configuration.",
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			version, err := getNixpkgsVersion(filepath.Join(flakeDir, "flake.nix"))
+			if err != nil {
+				log.Printf("Error getting nixpkgs version: %v", err)
+				return
+			}
+
+			fmt.Printf("Current nixpkgs version: %s\n", version)
+		},
+	}
+
+	var listInputsCmd = &cobra.Command{
+		Use:   "list-inputs",
+		Short: "List all inputs in flake configuration.",
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			err = listInputs(filepath.Join(flakeDir, "flake.nix"))
+			if err != nil {
+				log.Printf("Error listing inputs: %v", err)
+			}
+		},
+	}
+
+	var listModulesCmd = &cobra.Command{
+		Use:   "list-modules",
+		Short: "List available modules from flake inputs.",
+		Run: func(cmd *cobra.Command, args []string) {
+			homedir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("Error getting home directory: %v", err)
+				return
+			}
+
+			flakeLocationPath := filepath.Join(homedir, ".config", "apm", "flakelocation.txt")
+			flakeDir, err := readFlakeLocation(flakeLocationPath)
+			if err != nil {
+				log.Printf("Error reading flake location: %v", err)
+				return
+			}
+
+			err = extractInputModules(filepath.Join(flakeDir, "flake.nix"))
+			if err != nil {
+				log.Printf("Error extracting modules: %v", err)
+			}
+		},
+	}
+
 	// Add commands to the root command
 	rootCmd.AddCommand(listPackages)
 	rootCmd.AddCommand(setFlakeLocation)
 	rootCmd.AddCommand(makecacheCmd)
 	rootCmd.AddCommand(removecacheCmd)
 	rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand(rebuildCmd)
+	rootCmd.AddCommand(makenixenvCmd)
+	rootCmd.AddCommand(makehomeenvCmd)
+	rootCmd.AddCommand(setupflatpakCmd)
+	rootCmd.AddCommand(addInputCmd)
+	rootCmd.AddCommand(listInputsCmd)
+	rootCmd.AddCommand(listModulesCmd)
+	rootCmd.AddCommand(showNixpkgsVersionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)

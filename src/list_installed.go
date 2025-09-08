@@ -55,18 +55,53 @@ func readBlockEntries(path, blockName string) ([]string, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !inBlock && strings.Contains(line, blockName) {
-			// wait for '[' line
+			// Check if '[' is on the same line as blockName
 			if strings.Contains(line, "[") {
 				inBlock = true
+				// If there are entries on the same line after '[', extract them
+				bracketIndex := strings.Index(line, "[")
+				afterBracket := line[bracketIndex+1:]
+				trimmed := strings.TrimSpace(afterBracket)
+				if trimmed != "" && !strings.HasPrefix(trimmed, "]") {
+					// Remove trailing comments and brackets
+					if idx := strings.Index(trimmed, "#"); idx != -1 {
+						trimmed = trimmed[:idx]
+					}
+					trimmed = strings.TrimRight(trimmed, " ]")
+					if trimmed != "" {
+						entries = append(entries, strings.TrimSpace(trimmed))
+					}
+				}
 				continue
 			}
+			// If '[' is not on this line, wait for the next line with '['
 			continue
 		}
 		if inBlock {
 			if strings.Contains(line, "]") {
+				// Extract any remaining entries before the closing bracket
+				beforeBracket := line[:strings.Index(line, "]")]
+				trimmed := strings.TrimSpace(beforeBracket)
+				if trimmed != "" {
+					// Remove trailing comments
+					if idx := strings.Index(trimmed, "#"); idx != -1 {
+						trimmed = trimmed[:idx]
+					}
+					if trimmed != "" {
+						entries = append(entries, strings.TrimSpace(trimmed))
+					}
+				}
 				break
 			}
 			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			// Remove comments
+			if idx := strings.Index(trimmed, "#"); idx != -1 {
+				trimmed = trimmed[:idx]
+			}
+			trimmed = strings.TrimSpace(trimmed)
 			if trimmed == "" || trimmed == "[" {
 				continue
 			}
