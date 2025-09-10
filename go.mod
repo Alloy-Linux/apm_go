@@ -23,4 +23,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-go 1.24.6
+go 1.23.8
