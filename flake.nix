@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -36,11 +36,12 @@
           nativeBuildInputs = with pkgs; [
             pkg-config
             sqlite
+            git
           ];
           
+          env.CGO_ENABLED = "1";
           
-          # don't change this
-          buildFlags = [ "-mod=readonly" ];
+          buildFlags = [ "-mod=vendor" ];
           
           postInstall = ''
             mv $out/bin/src $out/bin/apm
