@@ -1,0 +1,35 @@
+name: Generate apm cache
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  generate-apm-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v5
+
+      - name: Install nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Add nix channel
+        run: nix-channel --add https://channels.nixos.org/nixpkgs-unstable nixpkgs
+
+      - name: Update nix channel
+        run: nix-channel --update
+
+      - name: Install apm
+        run: nix profile install github:Alloy-Linux/apm_go
+      
+      - name: Make the apm cache
+        run: apm makecache
+
+      - name: Upload apm cache as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apmCacheDB
+          path: ~/.cache/apm/apm.db
+          compression-level: 0
