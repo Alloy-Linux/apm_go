@@ -12,7 +12,7 @@ jobs:
       - name: Install nix
         uses: cachix/install-nix-action@v31
 
-      - name: Add nix channel
+      - name: Add the unstable nix channel
         run: nix-channel --add https://channels.nixos.org/nixpkgs-unstable nixpkgs
 
       - name: Install apm
@@ -21,9 +21,9 @@ jobs:
       - name: Make the apm cache
         run: apm makecache
 
-      - name: Upload apm cache as an artifact
+      - name: Upload apm.db as an artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apmCacheDB
+          name: apmDB
           path: ~/.cache/apm/apm.db
           compression-level: 0
